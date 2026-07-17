@@ -1,0 +1,32 @@
+# Secrets / local config
+!.env.example
+credentials-checklist.local.txt
+# env.local.ps1 and credentials-export.json are tracked (fill empty placeholders).
+# Keep the GitHub repo private if they contain real API keys.
+
+# Cursor self-heal output
+automation/heal_reports/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# n8n / working files
+*.log
+.n8n-files/
+n8n-credentials-encrypted.json
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.claude/settings.local.json
+branch_structure.json
+temp_auto_push.bat
+temp_interactive_push.bat
+.gitignore
+config.bat
+node_modules

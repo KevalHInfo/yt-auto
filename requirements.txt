@@ -1,0 +1,8 @@
+# Runtime dependencies for the YouTube Daily Automation helper scripts.
+# Install with:  python -m pip install -r requirements.txt
+#
+# NOTE: ffmpeg is a separate native dependency (not a pip package) and must be
+# installed and on PATH for render_video.py / generate_thumbnail.py to work.
+
+edge-tts>=6.1.0        # local text-to-speech voiceover (scripts/tts_edge.py)
+cursor-sdk>=0.1.9      # Cursor coding-agent SDK (automation/self_heal.py, generate_script.py)

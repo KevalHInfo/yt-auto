@@ -63,17 +63,20 @@ each one goes (which is functional vs. which is just reference notes for pasting
 
 ## Secrets
 
-Nothing secret is ever committed — everything below is gitignored:
-
-- `env.local.ps1` — the *only* file the workflow itself reads a secret from
-(`YOUTUBE_API_KEY`, optionally `CURSOR_API_KEY`):
+- `env.local.ps1` — launcher secrets (`YOUTUBE_API_KEY`, optionally `CURSOR_API_KEY`).
+  Tracked in git; fill the empty `""` values. Keep the repo private if keys are real:
   ```powershell
   $env:YOUTUBE_API_KEY = "AIza..."
   ```
-- **n8n's own Credentials vault** (n8n UI → gear icon → Credentials) — everything else (Groq,
-Pexels, Airtable, Google Sheets, Google Drive, Gmail, YouTube upload OAuth2). n8n encrypts
-these itself in `%USERPROFILE%\.n8n`, outside this repo.
-- `credentials-checklist.local.txt` — your own scratch notes, not read by anything.
+- `credentials-export.json` — fillable n8n import file (Groq / Pexels / MongoDB). Fill the
+  empty `""` fields, then:
+  ```powershell
+  npx n8n import:credentials --input=credentials-export.json
+  ```
+  n8n encrypts `data` on import. OAuth (YouTube, Sheets, Drive, Gmail) is connected in the
+  n8n UI. If you commit real keys here, keep the GitHub repo **private**.
+- **n8n Credentials vault** — encrypted under `%USERPROFILE%\.n8n` after import / OAuth.
+- `credentials-checklist.local.txt` *(gitignored)* — personal scratch notes only.
 
 
 
@@ -115,7 +118,7 @@ created as a Collaborator field instead of Date), fix the column type in Airtabl
 - `run-n8n.ps1` — portable launcher (env vars + ffmpeg discovery + start n8n).
 - `setup-second-pc.ps1` — one-time setup for a fresh PC.
 - `SECOND-PC-SETUP.md` — full credential-migration guide for a second machine.
-- `env.local.ps1` *(gitignored, per-machine)* — the one file-based secret, `YOUTUBE_API_KEY`.
+- `env.local.ps1` — launcher secrets (`YOUTUBE_API_KEY`). Tracked; keep repo private if filled.
 - `credentials-checklist.local.txt` *(gitignored)* — personal reference notes only.
 - `scripts/` — `tts_edge.py`, `render_video.py`, `generate_thumbnail.py` (+ ps1 wrapper).
 - `automation/` — optional Cursor-SDK self-heal / A-B script generator (not in the run path).

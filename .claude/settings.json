@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node -e ' *)",
+      "Bash(node \"C:/Users/ASUS/AppData/Local/Temp/claude/d--Projects-yt-automation/7684e2ef-5745-470a-b63f-2721bf320480/scratchpad/test_repair_v3.js\")",
+      "Bash(node \"C:/Users/ASUS/AppData/Local/Temp/claude/d--Projects-yt-automation/7684e2ef-5745-470a-b63f-2721bf320480/scratchpad/test_repair_v3_regression.js\")",
+      "Bash(node \"C:/Users/ASUS/AppData/Local/Temp/claude/d--Projects-yt-automation/7684e2ef-5745-470a-b63f-2721bf320480/scratchpad/gen_jscode_v3.js\")",
+      "Bash(node \"C:/Users/ASUS/AppData/Local/Temp/claude/d--Projects-yt-automation/7684e2ef-5745-470a-b63f-2721bf320480/scratchpad/final_e2e_check.js\")",
+      "Bash(python \"C:/Users/ASUS/AppData/Local/Temp/claude/d--Projects-yt-automation/7684e2ef-5745-470a-b63f-2721bf320480/scratchpad/check_pexels_cred.py\")",
+      "Bash(python \"C:/Users/ASUS/AppData/Local/Temp/claude/d--Projects-yt-automation/7684e2ef-5745-470a-b63f-2721bf320480/scratchpad/get_latest_exec3.py\")",
+      "Bash(python \"C:/Users/ASUS/AppData/Local/Temp/claude/d--Projects-yt-automation/7684e2ef-5745-470a-b63f-2721bf320480/scratchpad/get_raw_groq3.py\" 89)",
+      "Bash(python \"C:/Users/ASUS/AppData/Local/Temp/claude/d--Projects-yt-automation/7684e2ef-5745-470a-b63f-2721bf320480/scratchpad/get_raw_groq3.py\" 90)",
+      "Bash(node \"C:/Users/ASUS/AppData/Local/Temp/claude/d--Projects-yt-automation/7684e2ef-5745-470a-b63f-2721bf320480/scratchpad/test_repair_v4.js\")",
+      "Bash(node \"C:/Users/ASUS/AppData/Local/Temp/claude/d--Projects-yt-automation/7684e2ef-5745-470a-b63f-2721bf320480/scratchpad/test_repair_v4_regression.js\")",
+      "Bash(node \"C:/Users/ASUS/AppData/Local/Temp/claude/d--Projects-yt-automation/7684e2ef-5745-470a-b63f-2721bf320480/scratchpad/gen_jscode_v4.js\")",
+      "Bash(node \"C:/Users/ASUS/AppData/Local/Temp/claude/d--Projects-yt-automation/7684e2ef-5745-470a-b63f-2721bf320480/scratchpad/final_e2e_check_v4.js\")",
+      "Bash(python \"C:/Users/ASUS/AppData/Local/Temp/claude/d--Projects-yt-automation/7684e2ef-5745-470a-b63f-2721bf320480/scratchpad/check_thumb_node.py\")",
+      "Read(//c/Windows/Fonts/**)",
+      "Bash(python \"D:\\\\Projects\\\\yt-automation\\\\scripts\\\\generate_thumbnail.py\" \"D:\\\\Projects\\\\yt-automation\\\\scratch_title.txt\" \"D:\\\\Projects\\\\yt-automation\\\\scratch_thumb.jpg\")",
+      "Bash(ffprobe -v error -show_entries stream=width,height,codec_name -of default=noprint_wrappers=1 \"/d/Projects/yt-automation/scratch_thumb.jpg\")",
+      "Bash(python \"D:\\\\Projects\\\\yt-automation\\\\scripts\\\\generate_thumbnail.py\" \"D:\\\\Projects\\\\yt-automation\\\\scratch_title2.txt\" \"D:\\\\Projects\\\\yt-automation\\\\scratch_thumb2.jpg\")"
+    ]
+  }
+}

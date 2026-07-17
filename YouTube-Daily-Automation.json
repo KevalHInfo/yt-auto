@@ -1,0 +1,1348 @@
+{
+  "name": "YouTube Daily Automation",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 8
+            }
+          ]
+        }
+      },
+      "id": "10cf605f-a238-4a5b-8518-9f4e8be32a5e",
+      "name": "Daily Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        60320,
+        12096
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://hn.algolia.com/api/v1/search?tags=front_page&hitsPerPage=10",
+        "options": {}
+      },
+      "id": "9850182a-f9a2-4342-93c4-135a692a7bc1",
+      "name": "Hacker News Posts",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        60528,
+        11904
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://dev.to/api/articles?top=1&per_page=10",
+        "options": {}
+      },
+      "id": "69207a42-8f74-4bd2-8dc5-9de055db9b5f",
+      "name": "Dev.to Trending Articles",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        60528,
+        12096
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics&chart=mostPopular&regionCode=US&maxResults=10&key={{ $env.YOUTUBE_API_KEY }}",
+        "options": {}
+      },
+      "id": "853cf042-e957-4a52-8d75-a72f6d3c80e5",
+      "name": "YouTube Trending",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        60528,
+        12304
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "7f99a176-ac85-4eda-88b6-1325e582738b",
+      "name": "Merge HN and Trends",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 2.1,
+      "position": [
+        60976,
+        12000
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "36cc30f8-5f6e-4090-97a3-b4c737d8a53b",
+      "name": "Merge All Sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 2.1,
+      "position": [
+        61200,
+        12096
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const allTopics = [];\n\n// High-CPM tech sub-niches (AI, SaaS, business, security, fintech) earn 2-4x more\n// ad revenue than generic tech. Boost topics whose title matches these keywords so\n// the channel naturally drifts toward the more monetizable end of tech.\nconst HIGH_CPM = ['ai', 'artificial intelligence', 'gpt', 'llm', 'openai', 'anthropic', 'machine learning', 'saas', 'startup', 'funding', 'raises', 'ipo', 'acquisition', 'enterprise', 'cloud', 'aws', 'azure', 'security', 'cybersecurity', 'breach', 'privacy', 'fintech', 'crypto', 'business', 'revenue', 'automation', 'api', 'developer tools', 'productivity'];\nfunction cpmBoost(title) {\n  const t = (title || '').toLowerCase();\n  for (const kw of HIGH_CPM) {\n    if (t.includes(kw)) return 2.5;\n  }\n  return 1;\n}\n\nfor (const item of items) {\n  const d = item.json;\n\n  // Hacker News (via Algolia) - one item, hits array\n  if (d.hits) {\n    for (const hit of d.hits) {\n      allTopics.push({\n        title: hit.title,\n        score: ((hit.points || 0) + ((hit.num_comments || 0) * 5)) * cpmBoost(hit.title),\n        source: 'hackernews'\n      });\n    }\n  }\n\n  // YouTube trending - one item, items array\n  if (d.items) {\n    for (const video of d.items) {\n      const views = parseInt(video.statistics?.viewCount || 0);\n      allTopics.push({\n        title: video.snippet.title,\n        score: (views / 1000) * cpmBoost(video.snippet.title),\n        source: 'youtube'\n      });\n    }\n  }\n\n  // Dev.to trending articles - HTTP node splits the JSON array into one item per article\n  if (d.title && d.positive_reactions_count !== undefined) {\n    allTopics.push({\n      title: d.title,\n      score: ((d.positive_reactions_count || 0) + ((d.comments_count || 0) * 5)) * cpmBoost(d.title),\n      source: 'devto'\n    });\n  }\n}\n\nif (allTopics.length === 0) throw new Error('No topics found from any source');\n\nallTopics.sort((a, b) => b.score - a.score);\nconst best = allTopics[0];\n\n// date/used are plain values here so Log Topic to Sheets can auto-map them.\n// (Sheets resource-mapper expressions for date/topic were appending blank cells.)\nreturn [{ json: {\n  topic: best.title,\n  score: best.score,\n  source: best.source,\n  date: new Date().toISOString().split('T')[0],\n  used: 'TRUE'\n} }];"
+      },
+      "id": "259abc0a-8b61-4896-8c32-243f08781a65",
+      "name": "Score and Pick Topic",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        61408,
+        12096
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "19sZDQ8SseFZSfX5gV8r6Pjlt0uuKWVdb9SVFhpfgRuA",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Sheet1",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "date",
+              "displayName": "date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "topic",
+              "displayName": "topic",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "used",
+              "displayName": "used",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {
+          "useAppend": true,
+          "cellFormat": "USER_ENTERED"
+        }
+      },
+      "id": "0af98ef3-37b6-42cb-9bd7-48551290877a",
+      "name": "Log Topic to Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        61632,
+        12096
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "N8L0EcpwiiFZIpBU",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.groq.com/openai/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: \"llama-3.1-8b-instant\", max_tokens: 4096, messages: [ { role: \"user\", content: \"You are the scriptwriter for Nexiora, a faceless YouTube channel that gives a sharp, opinionated take on technology and AI news. Write an 8 to 10 minute video script (roughly 1200 to 1500 words of narration) about: \" + $json.topic + \". Do not just summarize the topic - give Nexiora's editorial angle: explain what it really means, who wins and who loses, why it matters, and end with a prediction. Open with a strong curiosity hook in the first two sentences, and end with a call to action to subscribe to Nexiora for daily tech. Respond with ONLY valid JSON (no markdown fences, no extra text) with exactly these four keys: title (a catchy, curiosity-driven video title under 70 characters, string), description (a 1 to 2 sentence YouTube description, string), sections (an array of 4 to 6 objects each with heading and content string fields), and script (the full spoken narration as ONE plain-text string - do not put quotation marks around individual sentences or paragraphs, do not use markdown headings or title cards, just write it as one continuous block of narration text).\" } ] }) }}",
+        "options": {}
+      },
+      "id": "c22c6033-5851-4acf-adf8-1cf117564335",
+      "name": "Generate Script (Groq)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 30000,
+      "position": [
+        61856,
+        12096
+      ],
+      "credentials": {
+        "httpBearerAuth": {
+          "id": "1xzDiuRIOcvhKnqY",
+          "name": "Bearer Auth account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const json = items[0].json;\n\nconst raw =\n  json.choices?.[0]?.message?.content ||\n  json.body?.choices?.[0]?.message?.content ||\n  json.response?.choices?.[0]?.message?.content;\n\nif (!raw) {\n  throw new Error('Unexpected response shape: ' + JSON.stringify(json, null, 2));\n}\n\n// Model may wrap its JSON in markdown fences despite instructions - strip them defensively\nconst cleaned = raw.trim().replace(/^```(?:json)?\\n?/, '').replace(/```$/, '');\n\n// Small/fast models are unreliable at emitting strictly valid JSON for long text\n// fields. Observed failure modes so far: (1) raw unescaped newlines inside a string\n// value, (2) the response getting cut off before the closing brace (token limit),\n// (3) the 'script' value split into several adjacent quoted strings instead of one\n// continuous string, (4) the model leaking a raw chat-template token (e.g.\n// 'assistant<|end_header_id|>') mid-object and then restarting that object from\n// scratch further on, (5) the model omitting an object's closing '}' right before\n// the array/object around it closes (e.g. the last item in sections[]), (6) the\n// model using unescaped scare quotes for emphasis inside a string value, which\n// prematurely terminates that string. Repair each using JSON.parse's own error\n// position rather than guessing the shape up front.\nfunction autoCloseTruncated(s) {\n  let inString = false;\n  let escapeNext = false;\n  const stack = [];\n  for (let i = 0; i < s.length; i++) {\n    const ch = s[i];\n    if (escapeNext) { escapeNext = false; continue; }\n    if (ch === '\\\\') { escapeNext = true; continue; }\n    if (ch === '\"') { inString = !inString; continue; }\n    if (inString) continue;\n    if (ch === '{' || ch === '[') stack.push(ch);\n    else if (ch === '}' || ch === ']') stack.pop();\n  }\n  let suffix = '';\n  if (inString) suffix += '\"';\n  for (let i = stack.length - 1; i >= 0; i--) {\n    suffix += stack[i] === '{' ? '}' : ']';\n  }\n  return s + suffix;\n}\n\n// Find the position of the '{' that starts the innermost object still open at `pos`.\nfunction findEnclosingBraceStart(s, pos) {\n  let inString = false;\n  let escapeNext = false;\n  const stack = [];\n  for (let i = 0; i < pos && i < s.length; i++) {\n    const ch = s[i];\n    if (escapeNext) { escapeNext = false; continue; }\n    if (ch === '\\\\') { escapeNext = true; continue; }\n    if (ch === '\"') { inString = !inString; continue; }\n    if (inString) continue;\n    if (ch === '{') stack.push(i);\n    else if (ch === '}') stack.pop();\n  }\n  return stack.length ? stack[stack.length - 1] : null;\n}\n\nfunction repairAndParse(text) {\n  let s = text;\n  for (let attempts = 0; attempts < 1000; attempts++) {\n    try {\n      return JSON.parse(s);\n    } catch (e) {\n      const m = /position (\\d+)/.exec(e.message);\n      const pos = m ? parseInt(m[1], 10) : null;\n\n      // Truncated - the parser ran off the end of the string. Close it out.\n      if (pos !== null && pos >= s.length) {\n        const closedUp = autoCloseTruncated(s);\n        if (closedUp !== s) { s = closedUp; continue; }\n        throw e;\n      }\n      // Raw control character (unescaped newline/tab/CR) inside a string value.\n      if (pos !== null && /bad control character/i.test(e.message)) {\n        const ch = s[pos];\n        const escapeMap = { '\\n': '\\\\n', '\\r': '\\\\r', '\\t': '\\\\t' };\n        const replacement = escapeMap[ch];\n        if (replacement === undefined) throw e;\n        s = s.slice(0, pos) + replacement + s.slice(pos + 1);\n        continue;\n      }\n      // Two adjacent quoted strings where a comma/brace was expected - the model\n      // split one string value into several. Merge them into a single string.\n      // Or: the model omitted the closing '}' for an object right before the\n      // enclosing array/object closes (e.g. the last item in sections[]) - insert\n      // the missing '}' and retry. Or: an unescaped scare-quote inside the string\n      // prematurely closed it - escape that quote and retry.\n      if (pos !== null && /Expected ',' or '}' after property value/i.test(e.message)) {\n        if (s[pos] === '\"') {\n          let i = pos - 1;\n          while (i >= 0 && /\\s/.test(s[i])) i--;\n          if (s[i] === '\"') {\n            s = s.slice(0, i) + ' ' + s.slice(pos + 1);\n            continue;\n          }\n        } else if (s[pos] === ']' || s[pos] === '}') {\n          s = s.slice(0, pos) + '}' + s.slice(pos);\n          continue;\n        } else {\n          let i = pos - 1;\n          while (i >= 0 && /\\s/.test(s[i])) i--;\n          if (s[i] === '\"') {\n            s = s.slice(0, i) + '\\\\' + s.slice(i);\n            continue;\n          }\n        }\n      }\n      // Fallback: the model emitted garbage (leaked special token, glitch, etc.)\n      // partway through an object and then restarted that same object from\n      // scratch further on. Find the object currently open at the failure point\n      // and the next '{' after it - if one exists, drop the broken partial\n      // object and keep the restarted (complete) one.\n      if (pos !== null) {\n        const brokenStart = findEnclosingBraceStart(s, pos);\n        const restartPos = s.indexOf('{', pos);\n        if (brokenStart !== null && restartPos !== -1 && restartPos > pos) {\n          s = s.slice(0, brokenStart) + s.slice(restartPos);\n          continue;\n        }\n      }\n      throw e;\n    }\n  }\n  throw new Error('Could not repair JSON after 1000 attempts');\n}\n\nlet parsed;\ntry {\n  parsed = repairAndParse(cleaned);\n} catch (e) {\n  throw new Error('Model did not return valid JSON. Raw response: ' + raw);\n}\n\nif (!parsed.title || !parsed.script) {\n  throw new Error('Parsed JSON missing required title/script fields: ' + JSON.stringify(parsed));\n}\n\nreturn [{ json: { raw, ...parsed } }];"
+      },
+      "id": "3b0965a5-9a52-442e-8c40-90e97923c077",
+      "name": "Parse Script JSON",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        62080,
+        12096
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const s = items[0].json;\n\nif (!s.script) {\n  throw new Error('Missing script text. Response JSON: ' + JSON.stringify(s, null, 2));\n}\n\nreturn [{\n  json: {\n    ...s,\n    fullScript: s.script,\n  }\n}];"
+      },
+      "id": "8130a15b-6f0b-41d6-bcb0-fea71f1a1647",
+      "name": "Build Full Script",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        62288,
+        12096
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "toText",
+        "sourceProperty": "fullScript",
+        "options": {
+          "fileName": "script.txt"
+        }
+      },
+      "id": "9b0f06e4-eb61-4221-b1fd-3d7bd5a43170",
+      "name": "Convert Script To Text File",
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [
+        62480,
+        12096
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "write",
+        "fileName": "={{ $env.YT_TMP_DIR }}/script.txt",
+        "options": {}
+      },
+      "id": "10202665-dbb5-4e16-90f8-60c5e08feb05",
+      "name": "Save Script To Disk",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [
+        62656,
+        12096
+      ]
+    },
+    {
+      "parameters": {
+        "command": "=python \"{{ $env.YT_SCRIPTS_DIR }}/tts_edge.py\" \"{{ $env.YT_TMP_DIR }}/script.txt\" \"{{ $env.YT_TMP_DIR }}/voice.mp3\""
+      },
+      "id": "46fc50f8-0777-4d0b-9831-1da998ed3855",
+      "name": "Generate Voiceover (Local TTS)",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        62832,
+        12096
+      ]
+    },
+    {
+      "parameters": {
+        "fileSelector": "={{ $env.YT_TMP_DIR }}/voice.mp3",
+        "options": {
+          "dataPropertyName": "data"
+        }
+      },
+      "id": "d2937722-41b3-42c4-ae64-e807217dce2a",
+      "name": "Read Voiceover Audio",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [
+        63008,
+        12096
+      ]
+    },
+    {
+      "parameters": {
+        "name": "=audio-{{ $('Build Full Script').item.json.title.replace(/[^a-z0-9]/gi, '-') }}.mp3",
+        "driveId": {
+          "__rl": true,
+          "value": "My Drive",
+          "mode": "list"
+        },
+        "folderId": {
+          "__rl": true,
+          "value": "1OcyzWBCLP8zRMAgURZ67_epVC6_RrUD0",
+          "mode": "id"
+        },
+        "options": {}
+      },
+      "id": "7d9c4c4e-ad75-4c38-a5e9-d886c86da9a6",
+      "name": "Save Audio to Drive",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        63184,
+        12304
+      ],
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "ZSExo67ptAa9VKFK",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const script = $('Build Full Script').item.json;\n\nreturn [{\n  json: {\n    ...script,\n    audioLocalPath: $env.YT_TMP_DIR + '/voice.mp3'\n  }\n}];"
+      },
+      "id": "d3185bb0-b3f5-404a-90ac-33aaf958524e",
+      "name": "Prepare Voiceover Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        63184,
+        12096
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const script = items[0].json;\nconst sections = script.sections || [];\nconst headings = sections.length > 0 ? sections.map(s => s.heading) : [script.title];\n\n// Full headings make poor stock-footage search queries - keep it to a few significant words instead.\nconst stopWords = new Set(['the','a','an','and','or','but','of','in','on','at','to','for','with','is','are','why','how','what']);\nconst keywords = headings.map(h => {\n  const words = h.replace(/[^a-zA-Z0-9\\s]/g, '').split(/\\s+/).filter(w => w && !stopWords.has(w.toLowerCase()));\n  return words.slice(0, 3).join(' ') || h;\n});\n\nreturn keywords.map(k => ({ json: { currentItem: k } }));"
+      },
+      "id": "b1375735-558c-4d01-bebf-7d5947cb3a6f",
+      "name": "Extract Keywords",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        63296,
+        12096
+      ]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "a883d0cf-03d6-4303-a78a-fe53d7cd81a7",
+      "name": "Split By Keyword",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        63392,
+        12096
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.pexels.com/videos/search?query={{ encodeURIComponent($json.currentItem) }}&per_page=3&orientation=landscape",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "options": {}
+      },
+      "id": "d5f5ffbe-5977-426a-8fc9-6b3d52aacaeb",
+      "name": "Fetch Pexels Clips",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        63616,
+        11904
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "p1ZJOiKGhwVnGGQq",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const videos = items[0].json.videos;\nif (!videos || videos.length === 0) throw new Error('No Pexels clips found');\n\nconst clip = videos.find(v => v.video_files.some(f => f.quality === 'hd')) || videos[0];\nconst file = clip.video_files.find(f => f.quality === 'hd') || clip.video_files[0];\n\nreturn [{ json: { clipUrl: file.link, duration: clip.duration } }];"
+      },
+      "id": "c1e6ad5e-8dd9-46d7-b6d5-9cc63cd86b2d",
+      "name": "Pick Best Clip",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        63840,
+        11904
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const idx = $('Split By Keyword').context.currentRunIndex;\nreturn [{ json: { ...items[0].json, localPath: `${$env.YT_TMP_DIR}/clip_${idx}.mp4` } }];"
+      },
+      "id": "8b623f0e-98de-4785-bab2-7e20e6319c11",
+      "name": "Assign Clip Path",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        64032,
+        11904
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.clipUrl }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "id": "291ecca8-0056-415f-a425-f3d395bc0ade",
+      "name": "Download Clip Binary",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        64224,
+        11904
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "write",
+        "fileName": "={{ $('Assign Clip Path').item.json.localPath }}",
+        "options": {}
+      },
+      "id": "8a533de5-b00a-4a68-9f03-d83ab11b11cf",
+      "name": "Save Clip To Disk",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [
+        64416,
+        11904
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const clips = items.map((item, i) => ({\n  localPath: item.json.fileName,\n  index: i\n}));\n\nconst script = $('Prepare Voiceover Data').item.json;\n\nreturn [{ json: { ...script, clips, totalClips: clips.length } }];"
+      },
+      "id": "11db37e6-0123-46e3-a1cb-eb9b8e06118c",
+      "name": "Collect All Clips",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        63616,
+        12304
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const d = items[0].json;\n\nconst manifest = {\n  clips: d.clips.map(c => c.localPath),\n  audio: d.audioLocalPath,\n  title: d.title || '',\n  output: $env.YT_TMP_DIR + '/final_video.mp4',\n  clipLength: 8\n};\n\nreturn [{ json: { ...d, manifestJson: JSON.stringify(manifest), outputPath: manifest.output } }];"
+      },
+      "id": "44019434-f3d4-4bcb-8867-58f227a16607",
+      "name": "Prepare Render Manifest",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        63840,
+        12304
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "toText",
+        "sourceProperty": "manifestJson",
+        "options": {
+          "fileName": "manifest.json"
+        }
+      },
+      "id": "46d7c89d-47eb-420d-bc30-aaced1bbc2d2",
+      "name": "Convert Manifest To File",
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [
+        64032,
+        12304
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "write",
+        "fileName": "={{ $env.YT_TMP_DIR }}/manifest.json",
+        "options": {}
+      },
+      "id": "6f8dba8f-6632-49d7-af7b-0ac18295c686",
+      "name": "Save Manifest To Disk",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [
+        64224,
+        12304
+      ]
+    },
+    {
+      "parameters": {
+        "command": "=python \"{{ $env.YT_SCRIPTS_DIR }}/render_video.py\" \"{{ $env.YT_TMP_DIR }}/manifest.json\""
+      },
+      "id": "2c1fdbc0-996b-4d7c-862c-b6ab5407b98c",
+      "name": "Render Video (Local FFmpeg)",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        64416,
+        12304
+      ]
+    },
+    {
+      "parameters": {
+        "fileSelector": "={{ $env.YT_TMP_DIR }}/final_video.mp4",
+        "options": {
+          "dataPropertyName": "data"
+        }
+      },
+      "id": "8d2320b6-2283-4936-9492-0170a251ca8f",
+      "name": "Read Rendered Video",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [
+        64624,
+        12304
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const prev = $('Prepare Render Manifest').item.json;\nreturn [{ json: { ...prev }, binary: items[0].binary }];"
+      },
+      "id": "182887d8-e62e-4b41-a6e3-b79fb2e04c7c",
+      "name": "Attach Video Metadata",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        64832,
+        12304
+      ]
+    },
+    {
+      "parameters": {
+        "name": "=video-{{ $('Attach Video Metadata').item.json.title.replace(/[^a-z0-9]/gi, '-') }}.mp4",
+        "driveId": {
+          "__rl": true,
+          "value": "My Drive",
+          "mode": "list"
+        },
+        "folderId": {
+          "__rl": true,
+          "value": "1k65tcqmqGoekzn772G43AI3vb5RBTKMG",
+          "mode": "id"
+        },
+        "options": {}
+      },
+      "id": "15608156-7d26-4e1d-9a1d-8288c76573b2",
+      "name": "Save Video to Drive",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        65040,
+        12304
+      ],
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "ZSExo67ptAa9VKFK",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Thumbnail is now generated LOCALLY by scripts/generate_thumbnail.py (offline, brand\n// controlled, per-title variation) instead of the remote Render service. Expose the\n// title so the next node can write it to a text file the script reads.\nreturn [{ json: { thumbTitle: $('Attach Video Metadata').item.json.title || 'Nexiora' } }];"
+      },
+      "id": "a1b2c3d4-1111-4aaa-9bbb-000000000001",
+      "name": "Prepare Thumbnail Title",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        65160,
+        12304
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "toText",
+        "sourceProperty": "thumbTitle",
+        "options": {
+          "fileName": "thumb_title.txt"
+        }
+      },
+      "id": "a1b2c3d4-1111-4aaa-9bbb-000000000002",
+      "name": "Convert Title To Text File",
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [
+        65280,
+        12304
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "write",
+        "fileName": "={{ $env.YT_TMP_DIR }}/thumb_title.txt",
+        "options": {}
+      },
+      "id": "a1b2c3d4-1111-4aaa-9bbb-000000000003",
+      "name": "Save Thumb Title To Disk",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [
+        65400,
+        12304
+      ]
+    },
+    {
+      "parameters": {
+        "command": "=python \"{{ $env.YT_SCRIPTS_DIR }}/generate_thumbnail.py\" \"{{ $env.YT_TMP_DIR }}/thumb_title.txt\" \"{{ $env.YT_TMP_DIR }}/thumbnail.png\""
+      },
+      "id": "a1b2c3d4-1111-4aaa-9bbb-000000000004",
+      "name": "Generate Thumbnail (Local)",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        65520,
+        12304
+      ]
+    },
+    {
+      "parameters": {
+        "fileSelector": "={{ $env.YT_TMP_DIR }}/thumbnail.png",
+        "options": {
+          "dataPropertyName": "thumbnail"
+        }
+      },
+      "id": "a1b2c3d4-1111-4aaa-9bbb-000000000005",
+      "name": "Read Thumbnail File",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [
+        65640,
+        12304
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const script = $('Attach Video Metadata').item.json;\nconst sections = script.sections || [];\nconst avgSectionDuration = 120;\n\nconst chapters = [\n  '0:00 Introduction',\n  ...sections.map((sec, i) => {\n    const totalSeconds = 30 + (i * avgSectionDuration);\n    const mins = Math.floor(totalSeconds / 60);\n    const secs = totalSeconds % 60;\n    return `${mins}:${secs.toString().padStart(2, '0')} ${sec.heading}`;\n  })\n];\n\nconst branding = '\\n\\n---\\nSubscribe to Nexiora for daily tech & AI news: https://youtube.com/@TheNexiora\\n\\n#Nexiora #TechNews #AI';\nconst description = script.description + '\\n\\n' + chapters.join('\\n') + branding;\n\nreturn [{ json: { ...script, description, chapters }, binary: $('Attach Video Metadata').item.binary }];"
+      },
+      "id": "92155ac1-294e-40ea-84c0-43235d72837d",
+      "name": "Calculate Chapters",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        65664,
+        12304
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Publish tomorrow at 5:00 PM US Eastern (America/New_York), DST-safe.\nconst publishDate = new Date();\npublishDate.setUTCDate(publishDate.getUTCDate() + 1);\n\nfunction nyOffset(date) {\n  const tz = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', timeZoneName: 'short' })\n    .formatToParts(date).find(p => p.type === 'timeZoneName').value;\n  return tz === 'EDT' ? -4 : -5;\n}\n\npublishDate.setUTCHours(17 - nyOffset(publishDate), 0, 0, 0);\n\nreturn [{\n  json: {\n    ...items[0].json,\n    publishAt: publishDate.toISOString()\n  },\n  binary: $('Attach Video Metadata').item.binary\n}];"
+      },
+      "id": "9147dd44-65aa-4397-bf58-5bed6f058500",
+      "name": "Set Publish Time",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        65872,
+        12304
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "video",
+        "operation": "upload",
+        "title": "={{ $json.title }}",
+        "regionCode": "US",
+        "categoryId": "28",
+        "options": {
+          "description": "={{ $json.description }}",
+          "privacyStatus": "private",
+          "publishAt": "={{ $json.publishAt }}",
+          "tags": "Nexiora, tech news, AI, artificial intelligence, technology, programming, software, developer news, machine learning, tech explained"
+        }
+      },
+      "id": "78a666a3-80b6-45ca-8ed4-d9832e883967",
+      "name": "Upload to YouTube",
+      "type": "n8n-nodes-base.youTube",
+      "typeVersion": 1,
+      "position": [
+        66080,
+        12304
+      ],
+      "credentials": {
+        "youTubeOAuth2Api": {
+          "id": "TTc4vODzbyjX0MU1",
+          "name": "YouTube account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Carry the uploaded video id forward and re-attach the thumbnail image binary\n// (produced locally by 'Read Thumbnail File', property 'thumbnail') so the next node can upload it.\nreturn [{\n  json: items[0].json,\n  binary: $('Read Thumbnail File').item.binary\n}];"
+      },
+      "id": "b7c8d9e0-f1a2-4b3c-8d4e-5f6a7b8c9d0e",
+      "name": "Attach Thumbnail Binary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        66288,
+        12496
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://www.googleapis.com/upload/youtube/v3/thumbnails/set?videoId={{ $('Upload to YouTube').item.json.uploadId }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "youTubeOAuth2Api",
+        "sendBody": true,
+        "contentType": "binaryData",
+        "inputDataFieldName": "thumbnail",
+        "options": {}
+      },
+      "id": "c8d9e0f1-a2b3-4c4d-8e5f-6a7b8c9d0e1f",
+      "name": "Set YouTube Thumbnail",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        66496,
+        12496
+      ],
+      "credentials": {
+        "youTubeOAuth2Api": {
+          "id": "TTc4vODzbyjX0MU1",
+          "name": "YouTube account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+              "name": "video_id",
+              "value": "={{ $('Upload to YouTube').item.json.uploadId }}",
+              "type": "string"
+            },
+            {
+              "id": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
+              "name": "title",
+              "value": "={{ $('Set Publish Time').item.json.title }}",
+              "type": "string"
+            },
+            {
+              "id": "c3d4e5f6-a7b8-9012-cdef-123456789012",
+              "name": "published_at",
+              "value": "={{ $('Set Publish Time').item.json.publishAt }}",
+              "type": "string"
+            },
+            {
+              "id": "d4e5f6a7-b8c9-0123-def0-234567890123",
+              "name": "status",
+              "value": "Done",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "6c0980f5-3a8d-4b3d-bc85-1c873001a633",
+      "name": "Prepare Video Log",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        66288,
+        12304
+      ]
+    },
+    {
+      "parameters": {
+        "collection": "videos",
+        "operation": "insert",
+        "fields": "video_id, title, published_at, status",
+        "options": {}
+      },
+      "id": "7d1a9e2b-4c5f-4a8e-9b0c-1d2e3f4a5b6c",
+      "name": "Save to MongoDB",
+      "type": "n8n-nodes-base.mongoDb",
+      "typeVersion": 1.1,
+      "position": [
+        66500,
+        12304
+      ],
+      "credentials": {
+        "mongoDb": {
+          "id": "nxMongoDbVideos01",
+          "name": "MongoDB account"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "id": "e0f1a2b3-c4d5-4e6f-8a9b-0c1d2e3f4a5b",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        63216,
+        12608
+      ]
+    },
+    {
+      "parameters": {
+        "sendTo": "keval.silveroak@gmail.com",
+        "subject": "=YouTube automation failed — {{ $json.execution?.lastNodeExecuted || 'unknown node' }}",
+        "emailType": "text",
+        "message": "=An error occurred in your YouTube automation workflow.\n\nWorkflow: {{ $json.workflow?.name || 'YouTube Daily Automation' }}\nFailed node: {{ $json.execution?.lastNodeExecuted || 'unknown' }}\nError: {{ $json.execution?.error?.message || 'No message' }}\nTime: {{ new Date().toISOString() }}\n\nCheck your n8n dashboard at http://localhost:5678",
+        "options": {}
+      },
+      "id": "1b0720dc-b35d-4197-97a8-1977ed04067c",
+      "name": "Send Error Email",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        63440,
+        12608
+      ],
+      "webhookId": "64cc1eab-905f-4dbe-a8e4-6121f3ae27ec",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "ofUgu2LzCWB5Mflr",
+          "name": "Gmail account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Daily Trigger": {
+      "main": [
+        [
+          {
+            "node": "Hacker News Posts",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Dev.to Trending Articles",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "YouTube Trending",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hacker News Posts": {
+      "main": [
+        [
+          {
+            "node": "Merge HN and Trends",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dev.to Trending Articles": {
+      "main": [
+        [
+          {
+            "node": "Merge HN and Trends",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "YouTube Trending": {
+      "main": [
+        [
+          {
+            "node": "Merge All Sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge HN and Trends": {
+      "main": [
+        [
+          {
+            "node": "Merge All Sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge All Sources": {
+      "main": [
+        [
+          {
+            "node": "Score and Pick Topic",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Score and Pick Topic": {
+      "main": [
+        [
+          {
+            "node": "Log Topic to Sheets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Topic to Sheets": {
+      "main": [
+        [
+          {
+            "node": "Generate Script (Groq)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Script (Groq)": {
+      "main": [
+        [
+          {
+            "node": "Parse Script JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Script JSON": {
+      "main": [
+        [
+          {
+            "node": "Build Full Script",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Full Script": {
+      "main": [
+        [
+          {
+            "node": "Convert Script To Text File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Convert Script To Text File": {
+      "main": [
+        [
+          {
+            "node": "Save Script To Disk",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Script To Disk": {
+      "main": [
+        [
+          {
+            "node": "Generate Voiceover (Local TTS)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Voiceover (Local TTS)": {
+      "main": [
+        [
+          {
+            "node": "Read Voiceover Audio",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Voiceover Audio": {
+      "main": [
+        [
+          {
+            "node": "Save Audio to Drive",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Prepare Voiceover Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Voiceover Data": {
+      "main": [
+        [
+          {
+            "node": "Extract Keywords",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Keywords": {
+      "main": [
+        [
+          {
+            "node": "Split By Keyword",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split By Keyword": {
+      "main": [
+        [
+          {
+            "node": "Collect All Clips",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fetch Pexels Clips",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Pexels Clips": {
+      "main": [
+        [
+          {
+            "node": "Pick Best Clip",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pick Best Clip": {
+      "main": [
+        [
+          {
+            "node": "Assign Clip Path",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assign Clip Path": {
+      "main": [
+        [
+          {
+            "node": "Download Clip Binary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download Clip Binary": {
+      "main": [
+        [
+          {
+            "node": "Save Clip To Disk",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Clip To Disk": {
+      "main": [
+        [
+          {
+            "node": "Split By Keyword",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Collect All Clips": {
+      "main": [
+        [
+          {
+            "node": "Prepare Render Manifest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Render Manifest": {
+      "main": [
+        [
+          {
+            "node": "Convert Manifest To File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Convert Manifest To File": {
+      "main": [
+        [
+          {
+            "node": "Save Manifest To Disk",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Manifest To Disk": {
+      "main": [
+        [
+          {
+            "node": "Render Video (Local FFmpeg)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Render Video (Local FFmpeg)": {
+      "main": [
+        [
+          {
+            "node": "Read Rendered Video",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Rendered Video": {
+      "main": [
+        [
+          {
+            "node": "Attach Video Metadata",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Attach Video Metadata": {
+      "main": [
+        [
+          {
+            "node": "Save Video to Drive",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Video to Drive": {
+      "main": [
+        [
+          {
+            "node": "Prepare Thumbnail Title",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Thumbnail Title": {
+      "main": [
+        [
+          {
+            "node": "Convert Title To Text File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Convert Title To Text File": {
+      "main": [
+        [
+          {
+            "node": "Save Thumb Title To Disk",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Thumb Title To Disk": {
+      "main": [
+        [
+          {
+            "node": "Generate Thumbnail (Local)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Thumbnail (Local)": {
+      "main": [
+        [
+          {
+            "node": "Read Thumbnail File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Thumbnail File": {
+      "main": [
+        [
+          {
+            "node": "Calculate Chapters",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calculate Chapters": {
+      "main": [
+        [
+          {
+            "node": "Set Publish Time",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Publish Time": {
+      "main": [
+        [
+          {
+            "node": "Upload to YouTube",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upload to YouTube": {
+      "main": [
+        [
+          {
+            "node": "Attach Thumbnail Binary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Attach Thumbnail Binary": {
+      "main": [
+        [
+          {
+            "node": "Set YouTube Thumbnail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set YouTube Thumbnail": {
+      "main": [
+        [
+          {
+            "node": "Prepare Video Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Video Log": {
+      "main": [
+        [
+          {
+            "node": "Save to MongoDB",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Send Error Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "c0dda556-0442-437f-9f31-012917b0b51a",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "a6654433dc4bf2c906bd238c44ab71dc6a831d2b4e9cc0267840331b5fee0eb1"
+  },
+  "id": "D9dlMpSQfsPlGsQa",
+  "tags": []
+}

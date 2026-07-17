@@ -1,0 +1,237 @@
+---
+description: Context and architecture for the YouTube Daily Automation project (n8n workflow + local Python helper scripts). Load whenever working on this repo.
+alwaysApply: true
+---
+
+# YouTube Daily Automation — Project Memory
+
+## What this project is
+A fully automated "faceless" YouTube channel pipeline built as an **n8n workflow** plus a
+set of **local Python helper scripts** in `scripts/`.
+
+**Working copy of the workflow: `YouTube-Daily-Automation.json` in the project root** — this
+is the edited/corrected version we maintain and import into n8n. The original untouched
+export is `C:\Users\Hunani Infotech\Downloads\YouTube Daily Automation (1).json` (do not
+edit; keep as backup reference). It runs once a day, discovers a trending tech topic, writes a script with an
+LLM, synthesizes a voiceover, assembles a video from stock footage, generates a thumbnail,
+and uploads the result to YouTube — logging everything to Google Sheets and Airtable.
+
+## End-to-end pipeline (n8n node order)
+1. **Daily Trigger** — schedule trigger, fires at 08:00.
+2. Fan-out to 3 sources (HTTP): **Hacker News** (Algolia front_page), **Dev.to** trending,
+   **YouTube Trending** (`YOUTUBE_API_KEY` env).
+3. **Merge HN and Trends** → **Merge All Sources** (merge nodes).
+4. **Score and Pick Topic** (Code) — scores every candidate (points + comments*5, or
+   views/1000), then applies a **2.5x `cpmBoost()`** to titles matching high-CPM keywords
+   (ai, llm, saas, startup, funding, enterprise, security, fintech, business, etc.) so the
+   channel drifts toward higher-CPM tech, and picks the single highest-scoring title.
+5. **Log Topic to Sheets** — appends `date, topic, used` to a Google Sheet.
+6. **Generate Script (Groq)** — POST to Groq `chat/completions`, model
+   `llama-3.1-8b-instant`, `max_tokens: 4096`, asks for strict JSON:
+   `title, description, sections[], script`. Prompt is the **Nexiora editorial voice**:
+   an 8-10 min (~1200-1500 word) opinionated take (what it means, who wins/loses, a
+   prediction) with a curiosity hook + subscribe CTA — NOT a plain summary.
+7. **Parse Script JSON** (Code) — heavy defensive JSON repair (small model emits invalid
+   JSON: unescaped newlines, truncation, split strings, leaked chat tokens). DO NOT
+   casually simplify this — each branch fixes an observed real failure.
+8. **Build Full Script** → **Convert Script To Text File** → **Save Script To Disk**.
+9. **Generate Voiceover (Local TTS)** — `executeCommand` runs `scripts/tts_edge.py`
+   (edge-tts) → `voice.mp3`.
+10. **Read Voiceover Audio** → **Save Audio to Drive** + **Prepare Voiceover Data**.
+11. **Extract Keywords** (Code) — turns section headings into short stock-search queries.
+12. **Split By Keyword** (splitInBatches loop) → **Fetch Pexels Clips** → **Pick Best Clip**
+    → **Assign Clip Path** → **Download Clip Binary** → **Save Clip To Disk** → back to loop.
+13. **Collect All Clips** → **Prepare Render Manifest** (Code, builds `manifest.json`) →
+    Convert/Save manifest → **Render Video (Local FFmpeg)** runs `scripts/render_video.py`.
+14. **Read Rendered Video** → **Attach Video Metadata** → **Save Video to Drive**.
+15. **Thumbnail (LOCAL)** — `Prepare Thumbnail Title` (Code, exposes `thumbTitle`) →
+    `Convert Title To Text File` (convertToFile) → `Save Thumb Title To Disk` (write
+    `thumb_title.txt`) → `Generate Thumbnail (Local)` (executeCommand runs
+    `scripts/generate_thumbnail.py <thumb_title.txt> <thumbnail.png>`) → `Read Thumbnail File`
+    (reads `thumbnail.png` into binary property **`thumbnail`**). Replaced the old remote
+    Render service (`n8n-media-service.onrender.com`) + Wait node.
+16. **Calculate Chapters** (Code — also appends the Nexiora subscribe CTA + `#Nexiora
+    #TechNews #AI` footer to the description) → **Set Publish Time** (tomorrow **5:00 PM
+    US Eastern**, DST-safe via `Intl` America/New_York) → **Upload to YouTube** (private +
+    `publishAt`, **category 28 Science & Technology, regionCode US**, `tags` set to Nexiora
+    keyword list) → **Save to Airtable**.
+17. **Send Error Email** (Gmail) — currently an ORPHAN node (see issues).
+
+## Local helper scripts (`scripts/`)
+- `tts_edge.py` — `edge_tts` CLI wrapper: `tts_edge.py <textfile> <out.mp3> [voice]`
+  (default voice `en-US-JennyNeural`).
+- `tts_edge.ps1` — PowerShell wrapper around `tts_edge.py`.
+- `render_video.py` — reads a manifest (`clips[], audio, title, output, clipLength`),
+  builds an ffmpeg `filter_complex` that scales/crops each clip to 1280x720@30, trims to
+  `clipLength` (default 8s), concats, overlays the title for the first 3s, muxes the
+  voiceover with `-shortest`. Needs `ffmpeg` on PATH.
+- `generate_thumbnail.py` — the ACTIVE thumbnail generator (ffmpeg + drawtext, 1280x720),
+  now wired into the workflow (see node order step 15). Args: `<title_file> <output.png>
+  [bg_image]`. **Varies per title** (deterministic md5 seed): rotates 6 on-brand Nexiora
+  palettes + 3 text positions, adds a "NEXIORA" watermark, and accepts an optional 3rd arg
+  (a video frame) to use as a darkened background — kills the "identical template"
+  inauthentic-content signal. Font is env-driven (`YT_FONT_BOLD`/`YT_FONT_FILE`, falls back
+  to Windows arialbd). To also use a video frame bg, extend the executeCommand with a 3rd arg
+  (e.g. a frame extracted from `final_video.mp4`) — not enabled by default.
+
+## Paths are now ENV-DRIVEN (not hardcoded)
+The workflow no longer contains machine-specific paths. It reads them from env vars, so the
+SAME workflow JSON runs on Windows, the Docker container, or a cloud VM:
+- `YT_SCRIPTS_DIR` — dir containing the `scripts/*.py` helpers
+- `YT_TMP_DIR` — working/temp dir (script.txt, voice.mp3, clip_*.mp4, manifest.json, final_video.mp4)
+- `YT_FONT_FILE` / `YT_FONT_BOLD` — font paths for ffmpeg drawtext (render_video.py / generate_thumbnail.py; default to Windows arial if unset)
+
+**PORTABLE across two Windows PCs (owner zips + moves the folder home laptop <-> office PC,
+different usernames).** Do NOT hardcode a username anywhere — paths are derived at launch:
+**Easiest local launch: `run-n8n.ps1`** (repo root) — sets `YT_SCRIPTS_DIR=<repo>/scripts`
+(repo-relative) and `YT_TMP_DIR=<%USERPROFILE%>/.n8n-files/tmp` (per-user, resolves on any
+username), sets fonts + `N8N_BLOCK_ENV_ACCESS_IN_NODE=false`, creates the tmp dir, dot-sources
+`env.local.ps1` for secrets, auto-discovers ffmpeg on PATH (WinGet fallback), then runs `npx n8n`.
+Run: `powershell -ExecutionPolicy Bypass -File run-n8n.ps1`.
+- **Secrets in tracked files:** fill `env.local.ps1` (`$env:YOUTUBE_API_KEY = "..."`)
+  and `credentials-export.json`. Keep the GitHub repo private if real keys are present.
+  The launcher warns if `YOUTUBE_API_KEY` is unset.
+- `automation/_common.py` `TMP_DIR` also resolves via `YT_TMP_DIR` env or `Path.home()/.n8n-files/tmp`.
+- CAVEAT: n8n's imported workflow + credentials live in `%USERPROFILE%\.n8n` (OUTSIDE the zip),
+  so on the second PC you must re-import the workflow and re-enter credentials (or copy `.n8n`).
+- **`setup-second-pc.ps1`** automates the fresh-PC setup: checks python, installs ffmpeg
+  (winget) + python deps, creates the tmp dir, scaffolds `env.local.ps1`, and runs
+  `npx n8n import:workflow`. It then prints the manual steps (paste `YOUTUBE_API_KEY`,
+  reconnect the 7 credentials, or copy `.n8n` + share `N8N_ENCRYPTION_KEY`). See `README.md`.
+Code nodes read them via `$env.YT_TMP_DIR` — needs `N8N_BLOCK_ENV_ACCESS_IN_NODE=false`.
+
+## On-demand button trigger (webhook node kept; page removed)
+- Workflow STILL has a `Manual Web Trigger` (webhook, POST `/webhook/generate-video`, `allowedOrigins: *`,
+  `responseMode: onReceived`) wired to the same 3 source nodes as `Daily Trigger`. Either trigger works.
+- `web/index.html` (self-contained one-button page) was **DELETED** during the lean-folder cleanup.
+  To trigger on demand now: use the manual run in the n8n editor, or POST to the webhook directly.
+  Recreate the page later if wanted.
+
+## Deployment (DEFERRED — files removed, recreate when ready)
+Docker/compose deployment is deferred. `Dockerfile`, `docker-compose.yml`, and `.env.example`
+were **DELETED** to keep the zip lean (owner currently runs locally via `run-n8n.ps1` on two
+laptops). When the deployment phase starts, RECREATE:
+- `Dockerfile` — custom n8n image with python + ffmpeg + edge-tts + ttf-dejavu baked in.
+- `docker-compose.yml` — n8n service; persistent volumes for workflows+credentials (avoids
+  re-import) and /data; mount `./scripts` + `./automation`; set all `YT_*` + key env vars +
+  `N8N_BLOCK_ENV_ACCESS_IN_NODE=false`.
+- `.env` (gitignored): `N8N_ENCRYPTION_KEY` (stable!), `GENERIC_TIMEZONE`, `YOUTUBE_API_KEY`, `CURSOR_API_KEY`.
+- Recommended free always-on host: Oracle Cloud "Always Free" VM or GCP e2-micro. Free PaaS
+  (Render/Railway free tiers) SLEEP on inactivity and won't fire the daily trigger — avoid.
+
+## Environment (verified on this machine, 2026-07)
+- Python **3.14.4** present. `node` **v22.22.3** present.
+- Repo is **NOT a git repository** yet.
+- n8n itself is run via `npx n8n` (see `.claude/settings*.json` allow-list).
+- `ffmpeg` **installed** via winget (`Gyan.FFmpeg` 8.1.2) at
+  `%LOCALAPPDATA%\Microsoft\WinGet\Packages\Gyan.FFmpeg_.../ffmpeg-8.1.2-full_build\bin` and
+  added to USER PATH (open a NEW terminal for it to resolve). `edge-tts` OK. arialbd font present.
+- `cursor-sdk` **0.1.9** installed (works on Python 3.14). Deps pinned in `requirements.txt`.
+
+## Cursor-agent integration (`automation/` package)
+Uses the Cursor SDK (`cursor-sdk`). Reads the key from env `CURSOR_API_KEY` (NEVER stored in
+repo); optional model override `CURSOR_MODEL` (default `auto`). Files:
+- `automation/_common.py` — key/model loading, `run_one_shot()` (one-shot `Agent.prompt`,
+  splits startup vs run failures), path constants.
+- `automation/self_heal.py` — **primary use case.** On a workflow failure, launches a Cursor
+  agent against the project to diagnose (and with `--apply`, fix) the failing script/node.
+  Diagnose-only by default; writes a report to `automation/heal_reports/heal-<ts>.md`.
+  CLI: `--node`, `--message`, `--stdin` (JSON error object), `--apply`.
+- `automation/generate_script.py` — OPTIONAL/off-label: generate a video script via a Cursor
+  agent as an A/B alternative to the Groq node. Prints the same JSON contract
+  (title/description/sections/script) to stdout. Groq remains the default.
+NOTE: `--apply` self-healing edits files with no undo until the repo is under git — keep it
+diagnose-only until git is initialised.
+
+## Secrets service — removed 2026-07-12
+A Node/Express + MongoDB (Atlas M0) encrypted credential-store service (`secrets-service/`,
+AES-256-GCM envelope encryption, bearer-token CRUD API) was built 2026-07 but never wired into
+the n8n workflow. Removed once credential migration between PCs was solved a simpler way: n8n's
+own `export:credentials`/`import:credentials` CLI plus its local encryption key (see
+`SECOND-PC-SETUP.md` in the repo root) — no second always-on service to run, secure, or keep an
+Atlas cluster alive for. Recreate from this history if a real multi-consumer secrets store is
+ever needed again.
+
+## Channel identity & monetization strategy (Nexiora)
+The channel is branded **Nexiora** — a faceless daily **US-targeted tech/AI news + editorial**
+channel (handle assumed `@Nexiora`; confirm/replace the URL in `Calculate Chapters` if different).
+Brand palette: dark navy `#1a1a2e` + accent pink-red `#e94560` (matches thumbnail generator).
+
+**Runs a US channel from India:** targeting is US (regionCode US, English, 5 PM ET publish, US
+trending source) while the AdSense/payout account stays India-based (file W-8BEN US tax info once
+monetized). No VPN needed. Set **Country of residence = United States** in YouTube Studio.
+
+**Monetization (YPP, verified 2026):** full ad revenue needs **1,000 subs + 4,000 public
+watch-hours/12mo** (Shorts-feed hours don't count); early access (memberships/Super Thanks) at
+**500 subs + 3,000 hrs**. Long-form 8+ min enables multiple mid-rolls (~20x Shorts RPM). Q4
+(Oct-Dec) gives ~1.6-2.1x RPM. US tech CPM ~$8-25; AI/SaaS/business/finance $15-90 (hence the
+`cpmBoost`). Diversify beyond ads: **affiliate (AI/SaaS tools, 20-40% recurring)**, sponsorships,
+memberships.
+
+**CRITICAL RISK — inauthentic-content policy (renamed July 15 2025; mass terminations Jan 2026):**
+YouTube demonetizes/terminates **mass-produced, templated, low-variation faceless output** — which
+a naive daily auto-pipeline resembles. AI/faceless is NOT banned; templated slop is. Mitigations
+applied/recommended: editorial-take script prompt, thumbnail variation, high-CPM topic bias, and
+(recommended, not yet done) **reduce cadence to 3-4 higher-effort videos/week** + per-video charts +
+enable YouTube "altered content" AI disclosure on upload.
+
+## Fixes already applied to `YouTube-Daily-Automation.json`
+1. **Paths corrected** — all `D:/Projects/...` script paths and `C:/Users/ASUS/.n8n-files/tmp`
+   temp paths rewritten to the canonical paths above.
+2. **Pexels key removed** — deleted the hardcoded `Authorization` header from `Fetch Pexels
+   Clips`; it now relies solely on the `httpHeaderAuth` credential. NOTE: the old key was
+   exposed and MUST be rotated in Pexels + the n8n credential.
+3. **Error handling wired** — added an `Error Trigger` node connected to `Send Error Email`;
+   email expressions updated to the error-trigger data shape
+   (`$json.execution.lastNodeExecuted`, `$json.execution.error.message`). n8n auto-runs an
+   in-workflow Error Trigger on failure.
+4. **Thumbnail applied** — after `Upload to YouTube`: `Attach Thumbnail Binary` (Code) →
+   `Set YouTube Thumbnail` (HTTP POST to `youtube/v3/thumbnails/set`, binaryData field
+   `thumbnail`, `youTubeOAuth2Api` cred) → `Save to Airtable`. Airtable `video_id` now
+   references `$('Upload to YouTube').item.json.uploadId` (was `$json.uploadId`).
+5. **Nexiora + US-targeting + monetization pass (2026-07)**:
+   - `Upload to YouTube`: `regionCode` IN→**US**, `categoryId` 27→**28** (Sci & Tech), added
+     `tags` (Nexiora keyword list).
+   - `Set Publish Time`: 15:00 server-local → **5:00 PM America/New_York** (DST-safe, UTC-based
+     so server timezone doesn't matter).
+   - `Generate Script (Groq)`: editorial Nexiora prompt + `max_tokens` 2048→**4096**.
+   - `Score and Pick Topic`: added **2.5x `cpmBoost()`** for high-CPM keyword matches.
+   - `Calculate Chapters`: appended subscribe CTA + hashtag footer (handle **`@TheNexiora`**).
+   - `scripts/generate_thumbnail.py`: rewritten for per-title palette/layout variation +
+     watermark + optional frame background + env-driven font.
+6. **Local thumbnail wired in (2026-07)** — removed the remote Render `Generate Thumbnail
+   (Pillow)` HTTP node + `Wait 30s` node; added `Prepare Thumbnail Title` → `Convert Title To
+   Text File` → `Save Thumb Title To Disk` → `Generate Thumbnail (Local)` (executeCommand) →
+   `Read Thumbnail File` (binary property `thumbnail`). `Attach Thumbnail Binary` now
+   references `$('Read Thumbnail File').item.binary`. Confirmed handle: **@TheNexiora**.
+7. **Cross-machine portability + cleanup (2026-07)** — removed the last hardcoded-username
+   paths: `run-n8n.ps1` now uses `%USERPROFILE%` for `YT_TMP_DIR`; `automation/_common.py`
+   `TMP_DIR` uses `YT_TMP_DIR`/`Path.home()`. Added `env.local.ps1` secret convention
+   (now tracked — keep repo private if filled) + launcher warning for `YOUTUBE_API_KEY`. Workflow JSON confirmed clean
+   (fully env-driven, no absolute paths).    Deleted junk not needed for the zip transfer:
+   `output.mp3`, `output2.mp3`, `output/`, and both `__pycache__/` dirs. Then (per owner) also
+   deleted deployment/deferred files to keep the zip lean: `Dockerfile`, `docker-compose.yml`,
+   `.env.example`, and `web/index.html` (+ empty `web/`). **Kept** `automation/` (Cursor SDK)
+   and `.claude/`. Deployment files must be RECREATED when the deployment phase begins.
+
+## Remaining known issues / risks
+1. **Verify in n8n** — the thumbnail-set node uses `youTubeOAuth2Api` as an HTTP predefined
+   credential type; confirm it's selectable and the OAuth scope allows thumbnail upload.
+   The workflow hasn't been end-to-end tested on this machine yet.
+2. **Groq JSON fragility** — mitigated by repair code; consider a larger/stricter model.
+3. **Merge node config** — `Merge All Sources` mixes indices (0 from HN+Dev.to, 1 from
+   YouTube); verify merge mode produces the combined item set `Score and Pick Topic` expects.
+4. **Thumbnail is now LOCAL** (remote Render service removed). Ensure `ffmpeg` is on PATH
+   and the bold font resolves (`YT_FONT_BOLD`/`YT_FONT_FILE`, else Windows arialbd) wherever
+   n8n runs, or `Generate Thumbnail (Local)` will fail.
+5. **Error email `sendTo`** is `keval.silveroak@gmail.com` — update to your address.
+
+## Credentials referenced (configured inside n8n, not in repo)
+Google Sheets OAuth2, Google Drive OAuth2, Groq (httpBearerAuth), Pexels (httpHeaderAuth),
+YouTube OAuth2, Airtable PAT, Gmail OAuth2. Env: `YOUTUBE_API_KEY`.
+
+## Working conventions
+- Keep the n8n workflow JSON importable/valid; when editing nodes preserve `id`,
+  connection names, and `typeVersion`.
+- Prefer fixing paths via env/config over more hardcoding when practical.
+- Don't weaken the `Parse Script JSON` repair logic without a replacement safeguard.
